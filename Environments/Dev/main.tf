@@ -292,46 +292,46 @@ data "google_client_config" "default" {}
 
 
 // Kubernetes Provider configuration to talk to the GKE cluster
-# provider "kubernetes" {
-#   host                   = "https://${module.gke.endpoint}"
-#   cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
-#   token                  = data.google_client_config.default.access_token
-# }
-
-# // Helm Provider configuration
-# provider "helm" {
-#   kubernetes = {
-#     host                   = "https://${module.gke.endpoint}"
-#     cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
-#     token                  = data.google_client_config.default.access_token
-#   }
-# }
-
-// --- This is the NEW, correct code ---
-
-// Kubernetes Provider configuration using the standard GKE exec plugin
 provider "kubernetes" {
   host                   = "https://${module.gke.endpoint}"
   cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "gcloud"
-    args        = ["container", "clusters", "get-credentials", module.gke.cluster_name, "--region", module.gke.location, "--project", var.gcp_project_id, "--internal-ip"]
-  }
+  token                  = data.google_client_config.default.access_token
 }
 
-// Helm Provider configuration using the standard GKE exec plugin
+// Helm Provider configuration
 provider "helm" {
   kubernetes = {
     host                   = "https://${module.gke.endpoint}"
     cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
-    exec = {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "gcloud"
-      args        = ["container", "clusters", "get-credentials", module.gke.cluster_name, "--region", module.gke.location, "--project", var.gcp_project_id, "--internal-ip"]
-    }
+    token                  = data.google_client_config.default.access_token
   }
 }
+
+// --- This is the NEW, correct code ---
+
+// Kubernetes Provider configuration using the standard GKE exec plugin
+# provider "kubernetes" {
+#   host                   = "https://${module.gke.endpoint}"
+#   cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
+#   exec {
+#     api_version = "client.authentication.k8s.io/v1beta1"
+#     command     = "gcloud"
+#     args        = ["container", "clusters", "get-credentials", module.gke.cluster_name, "--region", module.gke.location, "--project", var.gcp_project_id, "--internal-ip"]
+#   }
+# }
+
+# // Helm Provider configuration using the standard GKE exec plugin
+# provider "helm" {
+#   kubernetes = {
+#     host                   = "https://${module.gke.endpoint}"
+#     cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
+#     exec = {
+#       api_version = "client.authentication.k8s.io/v1beta1"
+#       command     = "gcloud"
+#       args        = ["container", "clusters", "get-credentials", module.gke.cluster_name, "--region", module.gke.location, "--project", var.gcp_project_id, "--internal-ip"]
+#     }
+#   }
+# }
 
 // Create namespace for ArgoCD
 resource "kubernetes_namespace" "argocd" {
@@ -345,7 +345,7 @@ resource "helm_release" "argocd" {
   name       = "argocd"
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argo-cd"
-  namespace  = kubernetes_namespace.argocd.metadata.name
+  namespace  = kubernetes_namespace.argocd.metadata[0].name
   version    = "5.51.5" 
 
 
@@ -379,7 +379,7 @@ data "google_secret_manager_secret_version" "db_password" {
 resource "kubernetes_secret" "db_secret" {
   metadata {
     name      = "two-tier-app-db-secret"
-    namespace = kubernetes_namespace.app_ns.metadata.name
+    namespace = kubernetes_namespace.app_ns.metadata[0].name
   }
   data = {
     DB_PASSWORD = data.google_secret_manager_secret_version.db_password.secret_data
@@ -393,7 +393,7 @@ resource "google_artifact_registry_repository" "helm_repo" {
   location      = var.gcp_region
   repository_id = "helm-charts"
   description   = "Helm chart repository for CI/CD"
-  format        = "HELM"
+  format        = "DOCKER"
 }
 
 // Define the ArgoCD Application using the Kubernetes provider
@@ -414,7 +414,7 @@ resource "kubernetes_manifest" "argocd_app" {
       }
       "destination" = {
         "server"    = "https://kubernetes.default.svc"
-        "namespace" = kubernetes_namespace.app_ns.metadata.name
+        "namespace" = kubernetes_namespace.app_ns.metadata[0].name
       }
       "syncPolicy" = {
         "automated" = {
