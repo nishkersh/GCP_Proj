@@ -1,0 +1,108 @@
+// --- GCP Project and Region ---
+// !!! MUST BE REPLACED with your actual GCP Project ID !!!
+gcp_project_id        = "<YOUR_GCP_PROJECT_ID>" 
+gcp_project_id_prefix = "itd"         
+environment           = "dev"
+gcp_region            = "asia-south2"
+gcp_zone_a            = "asia-south2-a" 
+
+// --- VPC ---
+vpc_name = "app-vpc"
+vpc_subnets = [
+  {
+    name                    = "gke-subnet"
+    ip_cidr_range           = "10.10.0.0/20"
+    description             = "Subnet for GKE cluster resources (Dev)"
+    purpose                 = "PRIVATE_GKE"
+    private_ip_google_access = true
+    log_config = {
+      aggregation_interval = "INTERVAL_5_SEC"
+      flow_sampling        = 0.5
+      metadata             = "INCLUDE_ALL_METADATA"
+    }
+  },
+  {
+    name                    = "db-subnet"
+    ip_cidr_range           = "10.10.16.0/24"
+    description             = "Subnet for Cloud SQL instances (Dev)"
+    private_ip_google_access = true
+    log_config              = null
+  },
+  {
+    name                    = "mgmt-subnet"
+    ip_cidr_range           = "10.10.17.0/24"
+    description             = "Subnet for management resources like Bastion (Dev)"
+    private_ip_google_access = true
+    log_config              = null
+  }
+]
+vpc_secondary_ip_ranges = {
+  "gke-subnet" = [
+    { range_name = "gke-pods-range", ip_cidr_range = "10.20.0.0/16" },
+    { range_name = "gke-services-range", ip_cidr_range = "10.30.0.0/20" }
+  ]
+}
+
+// --- Bastion Host ---
+bastion_machine_type      = "e2-small"
+// !!! MUST BE REPLACED with your public IP (e.g., from whatismyip.com) !!!
+bastion_ssh_source_ranges = ["<YOUR_HOME_IP>/32"] 
+
+// --- GKE ---
+gke_cluster_name           = "app-cluster"
+gke_master_ipv4_cidr_block = "172.16.0.16/28" 
+gke_master_authorized_networks = []
+gke_node_pools = [
+  {
+    name               = "default-pool"
+    machine_type       = "e2-medium" 
+    min_node_count     = 1
+    max_node_count     = 2
+    initial_node_count = 1
+    disk_size_gb       = 30
+    spot               = true
+  }
+]
+
+// --- Cloud SQL (PostgreSQL) ---
+db_instance_name           = "app-pg-db"
+db_tier                    = "db-f1-micro"
+db_availability_type       = "ZONAL"
+db_disk_size_gb            = 20
+db_user_name               = "app_user_dev"
+// !!! MUST BE REPLACED with the full path to your Secret Manager secret !!!
+db_user_password_secret_id = "projects/<YOUR_GCP_PROJECT_ID>/secrets/<YOUR_DB_PASSWORD_SECRET_NAME>"
+db_databases = [
+  { name = "app_db_dev" }
+]
+
+// --- Artifact Registry ---
+ar_repository_id  = "app-images"
+ar_immutable_tags = false
+
+// --- ALB ---
+alb_load_balancer_name    = "app-frontend-alb"
+// !!! Replace with a domain you own, or leave as is for testing via IP address !!!
+alb_domain_names          = ["app.your-domain.com"]
+alb_backend_services_config = {
+  "frontend-svc" = {
+    port_name    = "http"
+    protocol     = "HTTP"
+    enable_cdn   = false
+    health_check_config = {
+      type         = "HTTP"
+      request_path = "/"
+    }
+    gke_negs = []
+  }
+}
+alb_url_map_default_service_backend_key = "frontend-svc"
+
+// --- Common Tags ---
+common_tags = {
+  "environment"  = "dev"
+  "billing-code" = "project-rc11-dev"
+  "owner"        = "dev-team"
+}
+
+
