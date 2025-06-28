@@ -292,18 +292,44 @@ data "google_client_config" "default" {}
 
 
 // Kubernetes Provider configuration to talk to the GKE cluster
+# provider "kubernetes" {
+#   host                   = "https://${module.gke.endpoint}"
+#   cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
+#   token                  = data.google_client_config.default.access_token
+# }
+
+# // Helm Provider configuration
+# provider "helm" {
+#   kubernetes = {
+#     host                   = "https://${module.gke.endpoint}"
+#     cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
+#     token                  = data.google_client_config.default.access_token
+#   }
+# }
+
+// --- This is the NEW, correct code ---
+
+// Kubernetes Provider configuration using the standard GKE exec plugin
 provider "kubernetes" {
   host                   = "https://${module.gke.endpoint}"
   cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
-  token                  = data.google_client_config.default.access_token
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "gcloud"
+    args        = ["container", "clusters", "get-credentials", module.gke.cluster_name, "--region", module.gke.location, "--project", var.gcp_project_id, "--internal-ip"]
+  }
 }
 
-// Helm Provider configuration
+// Helm Provider configuration using the standard GKE exec plugin
 provider "helm" {
   kubernetes = {
     host                   = "https://${module.gke.endpoint}"
     cluster_ca_certificate = base64decode(module.gke.cluster_ca_certificate)
-    token                  = data.google_client_config.default.access_token
+    exec = {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "gcloud"
+      args        = ["container", "clusters", "get-credentials", module.gke.cluster_name, "--region", module.gke.location, "--project", var.gcp_project_id, "--internal-ip"]
+    }
   }
 }
 
@@ -319,7 +345,7 @@ resource "helm_release" "argocd" {
   name       = "argocd"
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argo-cd"
-  namespace  = kubernetes_namespace.argocd.metadata[0].name
+  namespace  = kubernetes_namespace.argocd.metadata.name
   version    = "5.51.5" 
 
 
