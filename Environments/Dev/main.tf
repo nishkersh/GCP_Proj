@@ -329,3 +329,77 @@ resource "helm_release" "argocd" {
     module.gke // Ensure GKE cluster is ready
   ]
 }
+
+
+
+//------------------------------------------------------------------------------
+// Application and ArgoCD Configuration
+//------------------------------------------------------------------------------
+
+// Create the application namespace
+resource "kubernetes_namespace" "app_ns" {
+  metadata {
+    name = "two-tier-app-dev"
+  }
+}
+
+// Fetches the database password from Google Secret Manager
+data "google_secret_manager_secret_version" "db_password" {
+  project = var.gcp_project_id
+  secret  = var.db_user_password_secret_id
+}
+
+// Creates a native Kubernetes secret with the fetched password
+resource "kubernetes_secret" "db_secret" {
+  metadata {
+    name      = "two-tier-app-db-secret"
+    namespace = kubernetes_namespace.app_ns.metadata.name
+  }
+  data = {
+    DB_PASSWORD = data.google_secret_manager_secret_version.db_password.secret_data
+  }
+  type = "Opaque"
+}
+
+// Create a repository in Artifact Registry to store Helm charts
+resource "google_artifact_registry_repository" "helm_repo" {
+  project       = var.gcp_project_id
+  location      = var.gcp_region
+  repository_id = "helm-charts"
+  description   = "Helm chart repository for CI/CD"
+  format        = "HELM"
+}
+
+// Define the ArgoCD Application using the Kubernetes provider
+resource "kubernetes_manifest" "argocd_app" {
+  manifest = {
+    "apiVersion" = "argoproj.io/v1alpha1"
+    "kind"       = "Application"
+    "metadata" = {
+      "name"      = "two-tier-app-dev"
+      "namespace" = "argocd" // The Application CRD must live in the 'argocd' namespace
+    }
+    "spec" = {
+      "project" = "default"
+      "source" = {
+        "repoURL"        = "https://github.com/nishkersh/Three-tier-App.git" // Your app's Git repo
+        "path"           = "helm/two-tier-app" // The path to the Helm chart we will create
+        "targetRevision" = "HEAD"
+      }
+      "destination" = {
+        "server"    = "https://kubernetes.default.svc"
+        "namespace" = kubernetes_namespace.app_ns.metadata.name
+      }
+      "syncPolicy" = {
+        "automated" = {
+          "prune"    = true
+          "selfHeal" = true
+        }
+        "syncOptions" = [
+          "CreateNamespace=true",
+        ]
+      }
+    }
+  }
+  depends_on = [helm_release.argocd]
+}
