@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.dbConfigMapName }}
+  labels:
+    {{- include "two-tier-app.labels" . | nindent 8 }}
+data:
+  DB_HOST: {{ .Values.dbConfig.host | quote }}
+  DB_PORT: {{ .Values.dbConfig.port | quote }}
+  DB_USER: {{ .Values.dbConfig.user | quote }}
+  DB_DATABASE: {{ .Values.dbConfig.database | quote }}

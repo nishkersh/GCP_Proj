@@ -1,0 +1,65 @@
+{{- if .Values.dbInitJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-db-init-job
+  labels:
+    {{- include "two-tier-app.labels" . | nindent 8 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      name: {{ .Release.Name }}-db-init-pod
+    spec:
+      containers:
+        - name: db-init-container
+          image: {{ .Values.dbInitJob.image }}
+          command:
+            - "/bin/sh"
+            - "-c"
+            - "psql -f /sql/queries.sql"
+          envFrom:
+          - configMapRef:
+              name: {{ .Values.dbConfigMapName }}
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dbSecretName }}
+                  key: DB_PASSWORD
+            - name: PGHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.dbConfigMapName }}
+                  key: DB_HOST
+            - name: PGUSER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.dbConfigMapName }}
+                  key: DB_USER
+            - name: PGDATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.dbConfigMapName }}
+                  key: DB_DATABASE
+          volumeMounts:
+            - name: sql-script-volume
+              mount_path: /sql
+      volumes:
+        - name: sql-script-volume
+          configMap:
+            name: {{ .Release.Name }}-db-schema-cm
+      restart_policy: Never
+  backoff_limit: 4
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-db-schema-cm
+data:
+  queries.sql: |-
+{{ .Files.Get "queries.sql" | nindent 8 }}
+{{- end }}

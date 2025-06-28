@@ -1,0 +1,31 @@
+# Default values for two-tier-app.
+replicaCount: 1
+
+image:
+  repository: asia-south2-docker.pkg.dev/it-devops-tf/app-images/two-tier-app
+  pullPolicy: IfNotPresent
+  # The tag is dynamically updated by the Jenkins pipeline
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+# This will be the name of the K8s secret we created with Terraform
+dbSecretName: "two-tier-app-db-secret"
+
+# This is the name of the ConfigMap we will create
+dbConfigMapName: "two-tier-app-db-config"
+
+# Database connection details for the ConfigMap
+dbConfig:
+  host: "10.52.240.3" # The private IP of my Cloud SQL instance
+  port: "5432"
+  user: "app_user_dev"
+  database: "app_db_dev"
+
+# Configuration for the database schema initialization job
+dbInitJob:
+  enabled: true
+  image: "postgres:14-alpine"
