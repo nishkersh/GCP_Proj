@@ -1,0 +1,124 @@
+gcloud config set project it-devops-tf
+
+$env:GOOGLE_APPLICATION_CREDENTIALS="C:\Users\ReekChatterjee\Downloads\terraform-sa-key.json"
+
+Db-password-dev = 2f2894c40bbfc83c6069a901
+Db-password-prod = d932ac385c86e473f8b36b46
+
+JWT-password-dev = ec4fec88f3edb8241905c2ba5c75ca01e5e863db988fc227201e4341a8c49667
+JWT-password-prod = 48215ce5bfdd24bbe5f22715cff13eb06923bf3dbc8fb2b73ebb09ad06c50b14
+
+
+# Create the secret container of db-app-user-dev-password
+gcloud secrets create db-app-user-dev-password --replication-policy="automatic" --project=it-devops-tf
+Set-Content -Path "temp_secret.txt" -Value "2f2894c40bbfc83c6069a901" -NoNewline
+gcloud secrets versions add db-app-user-dev-password --data-file="temp_secret.txt" --project=it-devops-tf
+Remove-Item "temp_secret.txt"
+gcloud secrets versions access latest --secret="db-app-user-dev-password"
+
+
+# Create the secret container of db-app-user-prod-password
+gcloud secrets create db-app-user-prod-password --replication-policy="automatic" --project=it-devops-tf
+Set-Content -Path "temp_secret.txt" -Value "d932ac385c86e473f8b36b46" -NoNewline
+gcloud secrets versions add db-app-user-deprodv-password --data-file="temp_secret.txt" --project=it-devops-tf
+Remove-Item "temp_secret.txt"
+gcloud secrets versions access latest --secret="db-app-user-prod-password"
+
+
+# Create the secret container of app-jwt-secret-key-dev
+gcloud secrets create app-jwt-secret-key-dev --replication-policy="automatic" --project=it-devops-tf
+Set-Content -Path "temp_secret.txt" -Value "ec4fec88f3edb8241905c2ba5c75ca01e5e863db988fc227201e4341a8c49667" -NoNewline
+gcloud secrets versions add app-jwt-secret-key-dev --data-file="temp_secret.txt" --project=it-devops-tf
+Remove-Item "temp_secret.txt"
+gcloud secrets versions access latest --secret="app-jwt-secret-key-dev"
+
+
+# Create the secret container of app-jwt-secret-key-prod
+gcloud secrets create app-jwt-secret-key-prod --replication-policy="automatic" --project=it-devops-tf
+Set-Content -Path "temp_secret.txt" -Value "48215ce5bfdd24bbe5f22715cff13eb06923bf3dbc8fb2b73ebb09ad06c50b14" -NoNewline
+gcloud secrets versions add app-jwt-secret-key-prod --data-file="temp_secret.txt" --project=it-devops-tf
+Remove-Item "temp_secret.txt"
+gcloud secrets versions access latest --secret="app-jwt-secret-key-prod"
+
+
+For the dev DB password:
+projects/it-devops-tf/secrets/db-app-user-dev-password/versions/latest
+
+For the prod DB password:
+projects/it-devops-tf/secrets/db-app-user-prod-password/versions/latest
+
+For the dev JWT key:
+projects/it-devops-tf/secrets/app-jwt-secret-key-dev/versions/latest
+
+For the prod JWT key:
+projects/it-devops-tf/secrets/app-jwt-secret-key-prod/versions/latest
+
+# Creating Google Service Accounts(GSA's) for K8's app
+gcloud iam service-accounts create backend-app-ksa-dev --display-name="Backend App KSA Dev" --project=it-devops-tf
+gcloud iam service-accounts create backend-app-ksa-prod --display-name="Backend App KSA Prod" --project=it-devops-tf
+
+# Dev GSA -> Dev JWT Secret
+gcloud secrets add-iam-policy-binding app-jwt-secret-key-dev --member="serviceAccount:backend-app-ksa-dev@it-devops-tf.iam.gserviceaccount.com" --role="roles/secretmanager.secretAccessor" --project=it-devops-tf
+
+RESULT:
+[
+    Updated IAM policy for secret [app-jwt-secret-key-dev].
+bindings:
+
+members:
+  - serviceAccount:backend-app-ksa-dev@it-devops-tf.iam.gserviceaccount.com
+  role: roles/secretmanager.secretAccessor
+etag: BwY3tnjVPmE=
+version: 1
+]
+
+# Dev GSA -> Dev DB Password Secret
+gcloud secrets add-iam-policy-binding db-app-user-dev-password --member="serviceAccount:backend-app-ksa-dev@it-devops-tf.iam.gserviceaccount.com" --role="roles/secretmanager.secretAccessor" --project=it-devops-tf
+RESULT:[
+    Updated IAM policy for secret [db-app-user-dev-password].
+bindings:
+- members:
+  - serviceAccount:backend-app-ksa-dev@it-devops-tf.iam.gserviceaccount.com
+  role: roles/secretmanager.secretAccessor
+etag: BwY3toDjTqo=
+version: 1
+]
+
+# Prod GSA -> Prod JWT Secret
+gcloud secrets add-iam-policy-binding app-jwt-secret-key-prod --member="serviceAccount:backend-app-ksa-prod@it-devops-tf.iam.gserviceaccount.com" --role="roles/secretmanager.secretAccessor" --project=it-devops-tf
+RESULT:[
+    Updated IAM policy for secret [app-jwt-secret-key-prod].
+bindings:
+- members:
+  - serviceAccount:backend-app-ksa-prod@it-devops-tf.iam.gserviceaccount.com
+  role: roles/secretmanager.secretAccessor
+etag: BwY3toSrqpY=
+version: 1
+]
+
+# Prod GSA -> Prod DB Password Secret
+gcloud secrets add-iam-policy-binding db-app-user-prod-password --member="serviceAccount:backend-app-ksa-prod@it-devops-tf.iam.gserviceaccount.com" --role="roles/secretmanager.secretAccessor" --project=it-devops-tf
+RESULT:[
+    Updated IAM policy for secret [db-app-user-prod-password].
+bindings:
+- members:
+  - serviceAccount:backend-app-ksa-prod@it-devops-tf.iam.gserviceaccount.com
+  role: roles/secretmanager.secretAccessor
+etag: BwY3tplFDoc=
+version: 1
+]
+
+# DON't do these right now since it depends on Workload identity and for workload identity to get created we have to run the GKE module 
+
+# Create IAM bindings for Workload Identity:
+# For Dev
+gcloud iam service-accounts add-iam-policy-binding backend-app-ksa-dev@it-devops-tf.iam.gserviceaccount.com --role="roles/iam.workloadIdentityUser" --member="serviceAccount:it-devops-tf.svc.id.goog[default/backend-app-ksa]" --project=it-devops-tf
+
+# For Prod
+gcloud iam service-accounts add-iam-policy-binding backend-app-ksa-prod@it-devops-tf.iam.gserviceaccount.com --role="roles/iam.workloadIdentityUser" --member="serviceAccount:it-devops-tf.svc.id.goog[default/backend-app-ksa]" --project=it-devops-tf
+
+
+
+
+ERRORS:
+

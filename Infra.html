@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1, maximum-scale=1">
+<title>Terraform Infrastructure Diagram (Cytoscape.js)</title>
+<script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
+<!-- For COSE-BILKENT layout (recommended for complex graphs with compound nodes) -->
+<script src="https://unpkg.com/cytoscape-cose-bilkent@4.0.0/cytoscape-cose-bilkent.js"></script>
+<style>
+  body { font-family: helvetica, sans-serif; font-size: 7px; margin: 0; padding: 0; }
+  #cy {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+  .tooltip {
+    position: absolute;
+    background-color: #333;
+    color: white;
+    padding: 4px 6px;
+    border-radius: 2px;
+    font-size: 6px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none; /* So it doesn't interfere with graph events */
+    z-index: 100;
+  }
+</style>
+</head>
+<body>
+  <div id="cy"></div>
+  <div id="tooltip" class="tooltip"></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+
+  // For COSE-BILKENT layout
+  cytoscape.use(cytoscapeCoseBilkent);
+
+  var cy = cytoscape({
+    container: document.getElementById('cy'),
+
+    elements: [
+      // --- Nodes ---
+
+      // Top-Level Containers (Conceptual)
+      { data: { id: 'gcp_project', label: 'GCP Project', type: 'container_project' } },
+      { data: { id: 'tf_management', label: 'Terraform Management', parent: 'gcp_project', type: 'container_tf_mgmt' } },
+      { data: { id: 'prod_env', label: 'Production Environment', parent: 'gcp_project', type: 'container_env' } },
+      // { data: { id: 'dev_env', label: 'Development Environment', parent: 'gcp_project', type: 'container_env' } }, // Example for dev
+
+      // Terraform Management Components
+      { data: { id: 'tf_code', label: 'Terraform Code\n(Root + Modules)', parent: 'tf_management', type: 'tf_artifact' } },
+      { data: { id: 'tf_apply', label: 'Terraform Apply\nProcess', parent: 'tf_management', type: 'tf_process' } },
+      { data: { id: 'gcs_state', label: 'GCS Backend\n(Terraform State)', type: 'gcp_storage', tooltip: 'Stores Terraform state remotely and securely.' } },
+
+      // External Actors & Services
+      { data: { id: 'user_admin', label: 'Admin/DevOps User', type: 'external_actor' } },
+      { data: { id: 'internet', label: 'Public Internet', type: 'external_network' } },
+      { data: { id: 'secret_manager', label: 'Secret Manager', type: 'gcp_security_service', tooltip: 'Stores database passwords, API keys.' } },
+      { data: { id: 'kms', label: 'Cloud KMS', type: 'gcp_security_service', tooltip: 'Manages encryption keys (e.g., for GKE CMEK).' } },
+
+      // --- Production Environment Modules ---
+      { data: { id: 'mod_vpc', label: 'VPC Module', parent: 'prod_env', type: 'module', tooltip: 'Manages Virtual Private Cloud networking.' } },
+      { data: { id: 'mod_bastion', label: 'Bastion Module', parent: 'prod_env', type: 'module', tooltip: 'Provisions a secure bastion host.' } },
+      { data: { id: 'mod_gke', label: 'GKE Module', parent: 'prod_env', type: 'module', tooltip: 'Manages Google Kubernetes Engine clusters.' } },
+      { data: { id: 'mod_db', label: 'Database Module\n(Cloud SQL)', parent: 'prod_env', type: 'module', tooltip: 'Provisions Cloud SQL for PostgreSQL instances.' } },
+      { data: { id: 'mod_alb', label: 'ALB Module', parent: 'prod_env', type: 'module', tooltip: 'Manages Global HTTP(S) Load Balancers.' } },
+
+      // Resources within VPC Module
+      { data: { id: 'vpc_network', label: "VPC Network\n'prod-vpc-main'", parent: 'mod_vpc', type: 'gcp_resource', resource_type: 'network', tooltip: 'Custom-mode VPC.' } },
+      { data: { id: 'subnet_bastion', label: "Subnet: Bastion\n'prod-snet-bastion'", parent: 'mod_vpc', type: 'gcp_resource', resource_type: 'subnet', tooltip: 'Public-facing subnet for bastion with NAT egress.' } },
+      { data: { id: 'subnet_gke', label: "Subnet: GKE\n'prod-snet-gke'", parent: 'mod_vpc', type: 'gcp_resource', resource_type: 'subnet', tooltip: 'Private subnet for GKE nodes, pods, services.' } },
+      { data: { id: 'subnet_db', label: "Subnet: Cloud SQL\n'prod-snet-db'", parent: 'mod_vpc', type: 'gcp_resource', resource_type: 'subnet', tooltip: 'Private subnet for Cloud SQL instances.' } },
+      { data: { id: 'vpc_router', label: 'Cloud Router', parent: 'mod_vpc', type: 'gcp_resource', resource_type: 'router' } },
+      { data: { id: 'vpc_nat', label: 'Cloud NAT', parent: 'mod_vpc', type: 'gcp_resource', resource_type: 'nat', tooltip: 'Provides outbound internet for private subnets.' } },
+      { data: { id: 'vpc_firewall', label: 'Firewall Rules', parent: 'mod_vpc', type: 'gcp_security_resource', resource_type: 'firewall', tooltip: 'Controls traffic flow (Default Deny Ingress, specific allows).' } },
+
+      // Resources within Bastion Module
+      { data: { id: 'bastion_vm', label: "Bastion GCE VM\n'prod-bastion-vm'", parent: 'mod_bastion', type: 'gcp_resource', resource_type: 'compute_instance' } },
+      { data: { id: 'bastion_ip', label: 'Bastion Static IP', parent: 'mod_bastion', type: 'gcp_resource', resource_type: 'static_ip' } },
+      { data: { id: 'bastion_sa', label: 'Bastion SA', parent: 'mod_bastion', type: 'gcp_sa', resource_type: 'service_account' } },
+
+      // Resources within GKE Module
+      { data: { id: 'gke_cluster', label: "GKE Cluster\n'prod-gke-primary'", parent: 'mod_gke', type: 'gcp_resource', resource_type: 'gke_cluster', tooltip: 'Regional, private GKE cluster.' } },
+      { data: { id: 'gke_cp', label: 'GKE Control Plane', parent: 'gke_cluster', type: 'gcp_resource_component', resource_type: 'gke_control_plane', tooltip: 'Private endpoint + Public with Authorized Networks.' } },
+      { data: { id: 'gke_nodepools', label: 'GKE Node Pools', parent: 'gke_cluster', type: 'gcp_resource_component', resource_type: 'gke_node_pool' } },
+      { data: { id: 'gke_node_sa', label: 'GKE Node SAs', parent: 'gke_cluster', type: 'gcp_sa', resource_type: 'service_account' } },
+      { data: { id: 'gke_workload_id', label: 'Workload Identity', parent: 'gke_cluster', type: 'gcp_security_feature', resource_type: 'workload_identity' } },
+      { data: { id: 'gke_cmek', label: 'GKE CMEK (etcd)', parent: 'gke_cluster', type: 'gcp_security_feature', resource_type: 'cmek' } },
+      { data: { id: 'gke_netpol', label: 'Network Policy', parent: 'gke_cluster', type: 'gcp_security_feature', resource_type: 'network_policy' } },
+      { data: { id: 'gke_pods_services', label: 'K8s Pods/Services', parent: 'gke_cluster', type: 'k8s_construct', tooltip: 'Workloads running on GKE.' } },
+
+
+      // Resources within Database Module
+      { data: { id: 'db_sql_instance', label: "Cloud SQL Instance\n'prod-sql-main-pg'", parent: 'mod_db', type: 'gcp_resource', resource_type: 'sql_instance', tooltip: 'PostgreSQL, Regional HA, Private IP.' } },
+      { data: { id: 'db_database', label: "Database\n'app_prod_db'", parent: 'db_sql_instance', type: 'gcp_resource_component', resource_type: 'sql_database' } },
+      { data: { id: 'db_user', label: "DB User\n'app_prod_user'", parent: 'db_sql_instance', type: 'gcp_resource_component', resource_type: 'sql_user' } },
+      { data: { id: 'db_private_ip', label: 'SQL Private IP', parent: 'db_sql_instance', type: 'gcp_resource_component', resource_type: 'private_ip' } },
+
+      // Resources within ALB Module
+      { data: { id: 'alb_global_ip', label: 'ALB Global IP', parent: 'mod_alb', type: 'gcp_global_resource', resource_type: 'global_ip' } },
+      { data: { id: 'alb_fwd_https', label: 'Fwd Rule HTTPS', parent: 'mod_alb', type: 'gcp_global_resource', resource_type: 'forwarding_rule' } },
+      { data: { id: 'alb_proxy_https', label: 'Target HTTPS Proxy', parent: 'mod_alb', type: 'gcp_global_resource', resource_type: 'target_proxy' } },
+      { data: { id: 'alb_url_map', label: 'URL Map', parent: 'mod_alb', type: 'gcp_global_resource', resource_type: 'url_map' } },
+      { data: { id: 'alb_ssl_cert', label: 'Managed SSL Cert', parent: 'mod_alb', type: 'gcp_security_resource', resource_type: 'ssl_certificate' } },
+      { data: { id: 'alb_backend_svc', label: 'Backend Service', parent: 'mod_alb', type: 'gcp_global_resource', resource_type: 'backend_service' } },
+      { data: { id: 'alb_health_check', label: 'Health Check', parent: 'mod_alb', type: 'gcp_global_resource', resource_type: 'health_check' } },
+      { data: { id: 'alb_negs', label: 'NEGs (GKE Services)', parent: 'mod_alb', type: 'gcp_resource_component', resource_type: 'neg', tooltip: 'Network Endpoint Groups linking to GKE services.' } },
+      { data: { id: 'alb_http_redirect', label: 'HTTP->HTTPS Redirect', parent: 'mod_alb', type: 'gcp_global_resource', resource_type: 'http_redirect_components' } },
+
+
+      // --- Edges ---
+      // Terraform Management Flow
+      { data: { id: 'e_tfcode_apply', source: 'tf_code', target: 'tf_apply', label: 'defines', type: 'flow' } },
+      { data: { id: 'e_tfapply_gcs', source: 'tf_apply', target: 'gcs_state', label: 'uses backend', type: 'data_access' } },
+      { data: { id: 'e_tfapply_env', source: 'tf_apply', target: 'prod_env', label: 'provisions', type: 'provisioning' } },
+
+      // Module Dependencies (Conceptual - actual dependencies are more granular)
+      { data: { id: 'e_bastion_vpc', source: 'mod_bastion', target: 'mod_vpc', label: 'depends on (network)', type: 'dependency' } },
+      { data: { id: 'e_gke_vpc', source: 'mod_gke', target: 'mod_vpc', label: 'depends on (network)', type: 'dependency' } },
+      { data: { id: 'e_gke_bastion', source: 'mod_gke', target: 'mod_bastion', label: 'uses IP for AuthNets', type: 'dependency', curveStyle: 'bezier' } },
+      { data: { id: 'e_db_vpc', source: 'mod_db', target: 'mod_vpc', label: 'depends on (network)', type: 'dependency' } },
+      { data: { id: 'e_alb_gke', source: 'mod_alb', target: 'mod_gke', label: 'targets NEGs from', type: 'dependency' } },
+
+      // VPC Internal Structure & Usage
+      { data: { id: 'e_vpc_has_subnetb', source: 'vpc_network', target: 'subnet_bastion', label: 'contains', type: 'containment' } },
+      { data: { id: 'e_vpc_has_subnetg', source: 'vpc_network', target: 'subnet_gke', label: 'contains', type: 'containment' } },
+      { data: { id: 'e_vpc_has_subnetd', source: 'vpc_network', target: 'subnet_db', label: 'contains', type: 'containment' } },
+      { data: { id: 'e_vpc_has_router', source: 'vpc_network', target: 'vpc_router', label: 'contains', type: 'containment' } },
+      { data: { id: 'e_router_has_nat', source: 'vpc_router', target: 'vpc_nat', label: 'enables', type: 'association' } },
+      { data: { id: 'e_subnetg_uses_nat', source: 'subnet_gke', target: 'vpc_nat', label: 'egress via', type: 'network_flow_dashed' } },
+      { data: { id: 'e_subnetd_uses_nat', source: 'subnet_db', target: 'vpc_nat', label: 'egress via', type: 'network_flow_dashed' } },
+      { data: { id: 'e_vpc_has_fw', source: 'vpc_network', target: 'vpc_firewall', label: 'protected by', type: 'security_association' } },
+
+      // Bastion Connections
+      { data: { id: 'e_bastionvm_ip', source: 'bastion_vm', target: 'bastion_ip', label: 'uses', type: 'association' } },
+      { data: { id: 'e_bastionvm_sa', source: 'bastion_vm', target: 'bastion_sa', label: 'uses SA', type: 'auth_flow' } },
+      { data: { id: 'e_bastionvm_subnet', source: 'bastion_vm', target: 'subnet_bastion', label: 'in subnet', type: 'network_placement' } },
+      { data: { id: 'e_fw_allow_bastion', source: 'vpc_firewall', target: 'bastion_vm', label: 'allows SSH to', type: 'security_policy_dashed', curveStyle: 'bezier' } },
+
+      // GKE Connections
+      { data: { id: 'e_gkecluster_subnet', source: 'gke_cluster', target: 'subnet_gke', label: 'in subnet', type: 'network_placement' } },
+      { data: { id: 'e_gkecluster_nodepoolsa', source: 'gke_nodepools', target: 'gke_node_sa', label: 'uses SA', type: 'auth_flow' } },
+      { data: { id: 'e_gkecluster_cmek', source: 'gke_cmek', target: 'kms', label: 'uses key from', type: 'data_access' } },
+      { data: { id: 'e_fw_allow_gke_cp', source: 'vpc_firewall', target: 'gke_nodepools', label: 'allows CP traffic', type: 'security_policy_dashed', curveStyle: 'bezier' } },
+      { data: { id: 'e_gke_pods_subnet', source: 'gke_pods_services', target: 'subnet_gke', label: 'uses pod/svc IPs from', type: 'network_flow_dashed' } },
+
+
+      // Database Connections
+      { data: { id: 'e_dbsql_subnet', source: 'db_sql_instance', target: 'subnet_db', label: 'in subnet (private IP)', type: 'network_placement' } },
+      { data: { id: 'e_dbsql_uses_privip', source: 'db_sql_instance', target: 'db_private_ip', label: 'has', type: 'association' } },
+      { data: { id: 'e_dbuser_secret', source: 'db_user', target: 'secret_manager', label: 'password from', type: 'data_access_secure' } },
+      { data: { id: 'e_fw_allow_db', source: 'vpc_firewall', target: 'db_sql_instance', label: 'allows access to', type: 'security_policy_dashed', curveStyle: 'bezier' } },
+
+
+      // ALB Connections
+      { data: { id: 'e_albfwd_ip', source: 'alb_fwd_https', target: 'alb_global_ip', label: 'uses', type: 'association' } },
+      { data: { id: 'e_albfwd_proxy', source: 'alb_fwd_https', target: 'alb_proxy_https', label: 'forwards to', type: 'network_flow' } },
+      { data: { id: 'e_albproxy_urlmap', source: 'alb_proxy_https', target: 'alb_url_map', label: 'uses', type: 'association' } },
+      { data: { id: 'e_albproxy_ssl', source: 'alb_proxy_https', target: 'alb_ssl_cert', label: 'uses cert', type: 'security_association' } },
+      { data: { id: 'e_alburlmap_backendsvc', source: 'alb_url_map', target: 'alb_backend_svc', label: 'routes to', type: 'network_flow' } },
+      { data: { id: 'e_albbackendsvc_hc', source: 'alb_backend_svc', target: 'alb_health_check', label: 'uses', type: 'association' } },
+      { data: { id: 'e_albbackendsvc_negs', source: 'alb_backend_svc', target: 'alb_negs', label: 'targets', type: 'network_flow' } },
+      { data: { id: 'e_albnegs_gkepods', source: 'alb_negs', target: 'gke_pods_services', label: 'points to', type: 'network_flow_dashed' } },
+      { data: { id: 'e_alb_http_redirect_ip', source: 'alb_http_redirect', target: 'alb_global_ip', label: 'uses same IP', type: 'association' } },
+
+
+      // External User/Internet Flows
+      { data: { id: 'e_user_alb', source: 'user_admin', target: 'alb_global_ip', label: 'accesses (HTTPS)', type: 'network_flow_user' } },
+      { data: { id: 'e_internet_alb', source: 'internet', target: 'alb_global_ip', label: 'accesses (HTTPS)', type: 'network_flow_user' } },
+      { data: { id: 'e_user_bastion', source: 'user_admin', target: 'bastion_ip', label: 'SSH via', type: 'network_flow_user' } },
+      { data: { id: 'e_bastionip_vm', source: 'bastion_ip', target: 'bastion_vm', label: 'routes to', type: 'network_flow_internal' } },
+      { data: { id: 'e_bastion_gke', source: 'bastion_vm', target: 'gke_cp', label: 'kubectl', type: 'control_flow' } },
+      { data: { id: 'e_bastion_db', source: 'bastion_vm', target: 'db_private_ip', label: 'psql', type: 'data_access' } },
+      { data: { id: 'e_gkepods_db', source: 'gke_pods_services', target: 'db_private_ip', label: 'DB connect', type: 'data_access' } },
+
+    ],
+
+    style: [
+      { selector: 'node',
+        style: {
+          'label': 'data(label)', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '10px',
+          'text-wrap': 'wrap', 'text-max-width': '80px', 'background-color': '#DDD',
+          'border-width': 1, 'border-color': '#AAA', 'shape': 'rectangle',
+          'width': 'label', 'height': 'label', 'padding': '10px'
+      }},
+      { selector: 'node:selected', style: { 'border-color': 'black', 'border-width': 2 } },
+      { selector: 'edge:selected', style: { 'line-color': 'black', 'width': 2 } },
+
+      // Container Styles
+      { selector: "node[type='container_project']", style: { 'background-color': '#E6E6FA', 'font-weight': 'bold', 'font-size': '16px', 'border-width': 2, 'border-color': '#333' } },
+      { selector: "node[type='container_tf_mgmt']", style: { 'background-color': '#F0F0F0', 'font-style': 'italic', 'border-style': 'dashed' } },
+      { selector: "node[type='container_env']", style: { 'background-color': '#FFFFFF', 'font-weight': 'bold', 'font-size': '14px', 'border-width': 2, 'border-color': '#555' } },
+
+      // Module Style
+      { selector: "node[type='module']", style: { 'background-color': '#D1C4E9', 'shape': 'roundrectangle', 'font-weight': 'bold', 'font-size': '12px', 'border-color': '#5E35B1' } },
+
+      // GCP Resource Styles
+      { selector: "node[type='gcp_resource']", style: { 'background-color': '#BBDEFB', 'border-color': '#0D47A1', 'shape': 'rectangle' } },
+      { selector: "node[type='gcp_resource_component']", style: { 'background-color': '#E3F2FD', 'border-color': '#42A5F5', 'shape': 'ellipse' } },
+      { selector: "node[type='gcp_global_resource']", style: { 'background-color': '#C8E6C9', 'border-color': '#2E7D32', 'shape': 'diamond' } },
+      { selector: "node[type='gcp_security_resource']", style: { 'background-color': '#FFF9C4', 'border-color': '#FBC02D', 'shape': 'octagon' } },
+      { selector: "node[type='gcp_security_feature']", style: { 'background-color': '#FFECB3', 'border-color': '#FFA000', 'shape': 'star' } },
+      { selector: "node[type='gcp_security_service']", style: { 'background-color': '#FFCDD2', 'border-color': '#C62828', 'shape': 'vee' } },
+      { selector: "node[type='gcp_storage']", style: { 'background-color': '#B2EBF2', 'border-color': '#006064', 'shape': 'barrel' } },
+      { selector: "node[type='gcp_sa']", style: { 'background-color': '#DCEDC8', 'border-color': '#558B2F', 'shape': 'pentagon' } },
+      { selector: "node[resource_type='network']", style: { 'background-color': '#90CAF9' } },
+      { selector: "node[resource_type='subnet']", style: { 'background-color': '#A5D6A7' } },
+      { selector: "node[resource_type='compute_instance']", style: { 'background-color': '#FFCC80' } },
+      { selector: "node[resource_type='gke_cluster']", style: { 'background-color': '#81D4FA', 'font-weight': 'bold' } },
+      { selector: "node[resource_type='sql_instance']", style: { 'background-color': '#CE93D8', 'font-weight': 'bold' } },
+      { selector: "node[resource_type='load_balancer']", style: { 'background-color': '#80CBC4', 'font-weight': 'bold' } }, // Generic LB, ALB is global
+      { selector: "node[type='k8s_construct']", style: { 'background-color': '#CFD8DC', 'border-color': '#37474F' } },
+
+
+      // External & TF Styles
+      { selector: "node[type='external_actor']", style: { 'background-color': '#FFEBEE', 'shape': 'ellipse', 'border-color': '#B71C1C' } },
+      { selector: "node[type='external_network']", style: { 'background-color': '#E0E0E0', 'shape': 'round-tag', 'border-color': '#424242' } },
+      { selector: "node[type='tf_artifact']", style: { 'background-color': '#EFEBE9', 'border-color': '#5D4037' } },
+      { selector: "node[type='tf_process']", style: { 'background-color': '#FAFAFA', 'border-color': '#757575', 'shape': 'tag' } },
+
+
+      // Edge Styles
+      { selector: 'edge',
+        style: {
+          'width': 1.5, 'line-color': '#ccc', 'target-arrow-color': '#ccc', 'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier', 'label': 'data(label)', 'font-size': '8px', 'text-rotation': 'autorotate',
+          'text-background-opacity': 0.7, 'text-background-color': '#fff', 'text-background-padding': '2px',
+          'edge-text-rotation': 'autorotate'
+      }},
+      { selector: "edge[type='dependency']", style: { 'line-color': '#FF7043', 'target-arrow-color': '#FF7043', 'line-style': 'dashed' } },
+      { selector: "edge[type='provisioning']", style: { 'line-color': '#4CAF50', 'target-arrow-color': '#4CAF50', 'width': 2.5 } },
+      { selector: "edge[type='network_flow']", style: { 'line-color': '#2196F3', 'target-arrow-color': '#2196F3' } },
+      { selector: "edge[type='network_flow_dashed']", style: { 'line-color': '#2196F3', 'target-arrow-color': '#2196F3', 'line-style': 'dashed' } },
+      { selector: "edge[type='network_flow_user']", style: { 'line-color': '#00BCD4', 'target-arrow-color': '#00BCD4', 'width': 2 } },
+      { selector: "edge[type='network_flow_internal']", style: { 'line-color': '#64B5F6', 'target-arrow-color': '#64B5F6' } },
+      { selector: "edge[type='data_access']", style: { 'line-color': '#7E57C2', 'target-arrow-color': '#7E57C2' } },
+      { selector: "edge[type='data_access_secure']", style: { 'line-color': '#AB47BC', 'target-arrow-color': '#AB47BC', 'line-style': 'dotted', 'width': 2 } },
+      { selector: "edge[type='auth_flow']", style: { 'line-color': '#EC407A', 'target-arrow-color': '#EC407A' } },
+      { selector: "edge[type='control_flow']", style: { 'line-color': '#FFA726', 'target-arrow-color': '#FFA726' } },
+      { selector: "edge[type='association']", style: { 'line-color': '#BDBDBD', 'target-arrow-color': '#BDBDBD' } },
+      { selector: "edge[type='containment']", style: { 'line-color': '#9E9E9E', 'target-arrow-shape': 'none', 'line-style': 'dotted' } },
+      { selector: "edge[type='security_association']", style: { 'line-color': '#FFCA28', 'target-arrow-color': '#FFCA28' } },
+      { selector: "edge[type='security_policy_dashed']", style: { 'line-color': '#FFEE58', 'target-arrow-color': '#FFEE58', 'line-style': 'dashed' } },
+      { selector: "edge[type='network_placement']", style: { 'line-color': '#78909C', 'target-arrow-shape': 'none', 'line-style': 'dotted' } },
+
+    ],
+
+    layout: {
+      name: 'cose-bilkent', // 'cose' or 'dagre' (for more hierarchical) or 'cose-bilkent' (good for compound)
+      // Common options for cose/cose-bilkent:
+      animate: 'end',
+      animationEasing: 'ease-out',
+      animationDuration: 1000,
+      randomize: true,
+      idealEdgeLength: 120,
+      nodeRepulsion: 8000, // Increase to spread out nodes more
+      nodeOverlap: 20,
+      edgeElasticity: 0.45,
+      nestingFactor: 0.1, // How much to tighten compound nodes
+      gravity: 0.25,
+      numIter: 2500,
+      tile: true,
+      // dagre specific options:
+      // rankDir: 'TB', // TB (Top to Bottom) or LR (Left to Right)
+      // spacingFactor: 1.25
+    }
+  });
+
+  // Basic Tooltip Functionality
+  const tooltipDiv = document.getElementById('tooltip');
+
+  cy.on('mouseover', 'node', function(evt){
+    const node = evt.target;
+    const tooltipText = node.data('tooltip') || node.data('label'); // Use specific tooltip data or fallback to label
+    if (tooltipText) {
+      tooltipDiv.innerHTML = tooltipText.replace(/\n/g, '<br>'); // Replace newlines for HTML
+      tooltipDiv.style.opacity = '0.9';
+      tooltipDiv.style.left = evt.renderedPosition.x + 15 + 'px';
+      tooltipDiv.style.top = evt.renderedPosition.y - 15 + 'px';
+    }
+  });
+
+  cy.on('mouseout', 'node', function(evt){
+    tooltipDiv.style.opacity = '0';
+  });
+
+  cy.on('mousemove', function(evt){
+    if (tooltipDiv.style.opacity === '0.9') { // Only update if visible
+        tooltipDiv.style.left = evt.renderedPosition.x + 15 + 'px';
+        tooltipDiv.style.top = evt.renderedPosition.y - 15 + 'px';
+    }
+  });
+
+  // Example: Click a module to log its children to console
+  cy.on('tap', "node[type='module']", function(evt){
+    var node = evt.target;
+    console.log( 'Tapped module: ' + node.id() + " (" + node.data('label') + ")" );
+    console.log( 'It contains resources: ');
+    node.children().forEach(child => {
+        console.log("  - " + child.id() + " (" + child.data('label') + ")");
+    });
+  });
+
+});
+</script>
+
+</body>
+</html>

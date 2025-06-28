@@ -1,0 +1,75 @@
+gcloud config set project it-devops-tf
+
+$env:GOOGLE_APPLICATION_CREDENTIALS="C:\Users\ReekChatterjee\Downloads\terraform-sa-key.json"
+bastion_public_ip = 34.131.227.69
+
+db-app-user-dev-password = 2f2894c40bbfc83c6069a901
+db-app-user-prod-password = d932ac385c86e473f8b36b46
+
+JWT-password-dev = ec4fec88f3edb8241905c2ba5c75ca01e5e863db988fc227201e4341a8c49667
+JWT-password-prod = 48215ce5bfdd24bbe5f22715cff13eb06923bf3dbc8fb2b73ebb09ad06c50b14
+
+
+For the dev DB password:
+projects/it-devops-tf/secrets/db-app-user-dev-password/versions/latest
+
+For the prod DB password:
+projects/it-devops-tf/secrets/db-app-user-prod-password/versions/latest
+
+For the dev JWT key:
+projects/it-devops-tf/secrets/app-jwt-secret-key-dev/versions/latest
+
+For the prod JWT key:
+projects/it-devops-tf/secrets/app-jwt-secret-key-prod/versions/latest
+
+
+
+
+
+
+
+
+
+data "google_container_cluster" "my_cluster" {
+  name     = module.gke.cluster_name
+  location = module.gke.location
+  project  = var.gcp_project_id
+
+  depends_on = [module.gke]
+}
+
+"https://private.${data.google_container_cluster.my_cluster.endpoint}"
+cluster_ca_certificate = base64decode(data.google_container_cluster.my_cluster.master_auth[0].cluster_ca_certificate)
+token                  = data.google_container_cluster.my_cluster.master_auth[0].access_token
+
+
+host                   = "https://private.${data.google_container_cluster.my_cluster.endpoint}"
+    cluster_ca_certificate = base64decode(data.google_container_cluster.my_cluster.master_auth[0].cluster_ca_certificate)
+    token                  = data.google_container_cluster.my_cluster.master_auth[0].access_token
+
+
+
+    # GCP Bastion Host via IAP
+Host itd-dev-bastion-host
+  HostName itd-dev-bastion-host
+  ProxyCommand C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -Command "gcloud compute ssh %h --zone asia-south2-a --project it-devops-tf --tunnel-through-iap --quiet -- 'ssh-proxy-for-iap'"
+  StrictHostKeyChecking no
+  User reek_chatterjee_zscaler_com
+
+
+# This is the command that VS Code is trying to run for you.
+gcloud compute ssh itd-dev-bastion-host --zone asia-south2-a --project it-devops-tf --tunnel-through-iap
+    
+
+    I'm hoping you can help me with a connection issue on my corporate laptop.
+My Goal: I'm trying to connect to a Google Cloud VM (a bastion host) using Google's standard, secure IAP (Identity-Aware Proxy) tunneling feature. This is the recommended best practice from Google for secure shell access.
+The Command: The command is gcloud compute ssh <instance-name> --tunnel-through-iap.
+The Problem: When I run this command, it fails immediately with a "PuTTY fatal error". This happens both when I run it directly and when it's run as part of the VS Code Remote-SSH extension's ProxyCommand.
+
+
+
+Hey Tyler Sir hope you are doing well , I need your help .  I'm working on deploying a new application to our GCP project (it-devops-tf), and I've set up the infrastructure using Terraform. I've run into a workflow problem 
+ The core of the issue is that my GKE cluster is configured securely with a private endpoint. So the cluster's control plane isn't exposed to the public internet
+ To connect to my cluster I have to go through my bastion server. The situation is that in order to manage the cluster—for example, to install applications like ArgoCD onto it using Terraform—I have to run my commands from a machine that is inside our GCP virtual network (VPC). My laptop is outside the network, so it can't connect to the private endpoint.
+
+I am able to connect to my bastion server through my GCP web browser  but as i am running terraform apply i am facing errors.and to debug that errors i have to use vim or nano for debugging on my terrraform files. It's really hard to debug errors on that nano or vim editors .since i can't connect my local  corporate laptop to that server . Maybe because of the corporate security policies. I there a workaround for this problem ? Like i am using VS code for code editor and used the Remote-SSh extension but still not able to access it 
