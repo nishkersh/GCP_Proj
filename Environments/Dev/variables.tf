@@ -310,3 +310,21 @@ variable "bastion_ssh_source_ranges" {
   
 }
 
+// Zscaler integration variables
+
+variable "zs_cc_prov_url" {
+  description = "The Zscaler Cloud Connector Provisioning URL."
+  type        = string
+  sensitive   = true
+}
+
+variable "zpa_secret_id" {
+  description = "The full resource ID of the Google Secret Manager secret containing ZPA API credentials."
+  type        = string
+}
+
+variable "ssh_public_key" {
+  description = "The public SSH key content for the Hub bastion host."
+  type        = string
+  sensitive   = true
+}

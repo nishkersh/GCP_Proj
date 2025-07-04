@@ -186,3 +186,11 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+
+
+variable "create_nat_gateway" {
+  description = "If true, creates a Cloud Router and NAT Gateway for this VPC to allow private instances outbound internet access."
+  type        = bool
+  default     = false
+}
