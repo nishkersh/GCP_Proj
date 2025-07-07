@@ -88,7 +88,7 @@ resource "google_compute_instance" "bastion" {
   }
 
   metadata = {
-    ssh-keys = "admin:${var.bastion_ssh_public_key}"
+    enable-oslogin = "TRUE"
   }
 
   // Allow the instance to be stopped for updates, e.g., changing machine type.
@@ -176,23 +176,19 @@ module "ilb" {
 
 resource "google_compute_firewall" "allow_internal" {
   project = var.project_id
-  name    = "${var.hub_vpc_name}-allow-internal"
+  name    = "${var.hub_vpc_name}-allow-mgmt-to-cc"
   network = google_compute_network.hub_vpc.name
-  allow {
-    protocol = "icmp"
-  }
+  direction     = "INGRESS"
+  source_ranges = [var.mgmt_subnet_cidr]
+  
+  destination_ranges = [var.cc_subnet_cidr]
   allow {
     protocol = "tcp"
-    ports    = ["0-65535"]
+    ports    = ["22"] 
   }
   allow {
-    protocol = "udp"
-    ports    = ["0-65535"]
+    protocol = "icmp" // Allow ping for diagnostics
   }
-  source_ranges = [
-    var.cc_subnet_cidr,
-    var.mgmt_subnet_cidr
-  ]
 }
 
 # Allow IAP to connect to the bastion host for secure, identity-based access
@@ -202,6 +198,23 @@ resource "google_compute_firewall" "allow_iap_to_bastion" {
   network       = google_compute_network.hub_vpc.name
   direction     = "INGRESS"
   source_ranges = ["35.235.240.0/20"] # This is Google's IAP IP range
+  target_tags   = ["hub-bastion"]
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+}
+
+# /zscaler_hub/main.tf
+
+// This rule allows SSH access to the Hub bastion from the Spoke's App Connectors via ZPA.
+resource "google_compute_firewall" "allow_zpa_to_bastion" {
+  description   = "Allows SSH access to the Hub bastion from the Spoke's App Connectors via ZPA."
+  project       = var.project_id
+  name          = "${var.hub_vpc_name}-allow-zpa-to-bastion"
+  network       = google_compute_network.hub_vpc.name
+  direction     = "INGRESS"
+  source_ranges = [var.app_connector_subnet_cidr_for_ssh]
   target_tags   = ["hub-bastion"]
   allow {
     protocol = "tcp"

@@ -32,6 +32,12 @@ variable "gcp_zone_a" {
   default     = "asia-south2-a" # Make sure this zone exists in your chosen region
 }
 
+variable "gcp_zone_b" {
+  description = "Primary GCP zone within the region (e.g., for Bastion host)."
+  type        = string
+  default     = "asia-south2-b" # Make sure this zone exists in your chosen region
+}
+
 // VPC Variables
 variable "vpc_name" {
   description = "Name for the VPC network."

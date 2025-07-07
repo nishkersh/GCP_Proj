@@ -86,3 +86,10 @@ variable "name_prefix" {
   description = "A short prefix (e.g., 'zs-hub') to be used for naming all resources."
   type        = string
 }
+
+# /zscaler_hub/variables.tf
+
+variable "app_connector_subnet_cidr_for_ssh" {
+  description = "The CIDR range of the App Connector subnet in the Spoke VPC. This is required to allow ZPA-based SSH access to the Hub bastion."
+  type        = string
+}

@@ -46,14 +46,14 @@ module "vpc" {
       allow = [{ protocol = "all" }] # Allows all protocols (tcp, udp, icmp)
       # No target_tags means it applies to all instances in the network by default for these source_ranges
     },
-    {
-      name        = "allow-ssh-iap" # For IAP access to any VM (e.g., GKE nodes if needed for debug)
-      description = "Allow SSH via IAP from Google's IAP netblock."
-      direction   = "INGRESS"
-      source_ranges = ["35.235.240.0/20"] # Google IAP netblock
-      allow = [{ protocol = "tcp", ports = ["22"] }]
-      # target_tags = ["allow-iap-ssh"] # VMs would need this tag
-    },
+    # {
+    #   name        = "allow-ssh-iap" # For IAP access to any VM (e.g., GKE nodes if needed for debug)
+    #   description = "Allow SSH via IAP from Google's IAP netblock."
+    #   direction   = "INGRESS"
+    #   source_ranges = ["35.235.240.0/20"] # Google IAP netblock
+    #   allow = [{ protocol = "tcp", ports = ["22"] }]
+    #   # target_tags = ["allow-iap-ssh"] # VMs would need this tag
+    # },
     {
       name        = "allow-gke-master-to-nodes"
       description = "Allow GKE master to communicate with nodes (health checks, etc.)."
@@ -93,7 +93,8 @@ module "bastion" {
 
   create_static_ip = true
 
-  network_tags      = ["bastion-host", "allow-iap-ssh"] # Tag for its own SSH rule and IAP
+  create_external_ip = false
+  network_tags      = ["spoke-bastion", "allow-iap-ssh"] # Tag for its ZPA firewall rules and IAP
   enable_os_login   = true
   startup_script    = "#!/bin/bash\napt-get update -y\napt-get install -y tcpdump dnsutils google-cloud-sdk-gke-gcloud-auth-plugin kubectl\necho 'Bastion setup complete.' > /setup.txt"
   tags              = var.common_tags
@@ -428,4 +429,48 @@ resource "kubernetes_manifest" "argocd_app" {
     }
   }
   depends_on = [helm_release.argocd]
+}
+
+# /Environments/Dev/main.tf
+
+# ------------------------------------------------------------------------------
+# Spoke VPC NAT Gateway for Private Outbound Access
+# ------------------------------------------------------------------------------
+// This NAT Gateway provides internet access for private resources like the Spoke Bastion.
+resource "google_compute_router" "spoke_nat_router" {
+  project = var.gcp_project_id
+  name    = "${module.vpc.vpc_name}-nat-router"
+  region  = var.gcp_region
+  network = module.vpc.vpc_self_link
+}
+
+resource "google_compute_router_nat" "spoke_nat_gateway" {
+  project                            = var.gcp_project_id
+  name                               = "${module.vpc.vpc_name}-nat-gateway"
+  router                             = google_compute_router.spoke_nat_router.name
+  region                             = var.gcp_region
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+  log_config {
+    enable = true
+    filter = "ERRORS_ONLY"
+  }
+}
+
+# /Environments/Dev/main.tf
+
+# ------------------------------------------------------------------------------
+# Firewall Rule for IAP Access to Spoke Bastion
+# ------------------------------------------------------------------------------
+// This rule allows secure SSH access to the Spoke bastion via Google's Identity-Aware Proxy.
+resource "google_compute_firewall" "allow_iap_to_spoke_bastion" {
+  project       = var.gcp_project_id
+  name          = "${module.vpc.vpc_name}-allow-iap-to-bastion"
+  network       = module.vpc.vpc_name
+  direction     = "INGRESS"
+  source_ranges = ["35.235.240.0/20"] // Google's IAP IP range
+  target_tags   = ["allow-iap-ssh"]   // Matches the tag added to the bastion module
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
 }

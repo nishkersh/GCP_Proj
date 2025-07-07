@@ -15,6 +15,7 @@ module "zscaler_hub" {
   hub_vpc_name       = "zs-hub-vpc-dev"
   cc_subnet_cidr     = "10.200.0.0/24"
   mgmt_subnet_cidr   = "10.200.1.0/24"
+  app_connector_subnet_cidr_for_ssh = module.zscaler_spoke_connectors.app_connector_subnet_cidr
   cc_vm_prov_url     = var.zs_cc_prov_url # Assumes this is added to variables.tf
   cc_count_per_zone  = 1
   bastion_ssh_public_key = var.ssh_public_key # Assumes this is added to variables.tf

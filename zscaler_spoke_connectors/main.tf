@@ -102,28 +102,98 @@ locals {
 }
 
 # This reuses the acvm module logic from the source material.
-module "ac_vm" {
-  source = "../../modules/terraform-zsac-acvm-gcp" # Adjust path as needed
+# module "ac_vm" {
+#   source = "../../modules/terraform-zsac-acvm-gcp" # Adjust path as needed
 
-  project             = var.project_id
-  region              = var.region
-  zones               = var.zones
-  name_prefix         = var.name_prefix
-  resource_tag        = local.resource_suffix
-  acvm_instance_type  = var.ac_instance_type
-  ac_count            = var.ac_count_per_zone
-  image_name          = data.google_compute_image.zs_ac_img.self_link
-  acvm_vpc_subnetwork = google_compute_subnetwork.ac_subnet.self_link
+#   project             = var.project_id
+#   region              = var.region
+#   zones               = var.zones
+#   name_prefix         = var.name_prefix
+#   resource_tag        = local.resource_suffix
+#   acvm_instance_type  = var.ac_instance_type
+#   ac_count            = var.ac_count_per_zone
+#   image_name          = data.google_compute_image.zs_ac_img.self_link
+#   acvm_vpc_subnetwork = google_compute_subnetwork.ac_subnet.self_link
 
-  # Pass the list of generated user_data scripts to the module.
-  # This assumes the module can accept a list of user_data, one for each instance.
-  # If the underlying module does not support this, a custom instance resource loop would be needed.
-  # For this implementation, we assume the module is flexible or we would adapt it.
-  user_data = local.ac_user_data[0] # Simplified for this example; a true HA setup would require module modification or a different loop structure.
-  # A more robust implementation would involve a custom loop creating google_compute_instance resources directly
-  # to assign a unique user_data script to each.
+#   # Pass the list of generated user_data scripts to the module.
+#   # This assumes the module can accept a list of user_data, one for each instance.
+#   # If the underlying module does not support this, a custom instance resource loop would be needed.
+#   # For this implementation, we assume the module is flexible or we would adapt it.
+#   user_data = local.ac_user_data[0] # Simplified for this example; a true HA setup would require module modification or a different loop structure.
+#   # A more robust implementation would involve a custom loop creating google_compute_instance resources directly
+#   # to assign a unique user_data script to each.
+# }
+
+# /zscaler_spoke_connectors/main.tf
+
+# App Connector VMs (HA Cluster) 
+
+# Find the latest Zscaler App Connector image from the marketplace
+
+# gcloud compute images describe-from-family zpa-connector-rhel-9 --project=mpi-zpa-gcp-marketplace
+data "google_compute_image" "zs_ac_img" {
+  project = "mpi-zpa-gcp-marketplace"
+  name    = "zpa-connector-rhel-9" // Note: Image family is used to avoid updating over time .
 }
 
+# 1. Create a single instance template for the App Connectors.
+#    The user_data will be overridden for each instance.
+resource "google_compute_instance_template" "ac_template" {
+  project      = var.project_id
+  name_prefix  = "${var.name_prefix}-ac-template-"
+  machine_type = var.ac_instance_type
+  region       = var.region
+  tags         = ["spoke-app-connector"]
+
+  disk {
+    source_image = data.google_compute_image.zs_ac_img.self_link
+    auto_delete  = true
+    boot         = true
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.ac_subnet.self_link
+  }
+
+  // This user_data is a placeholder; it will be overridden by per-instance configs.
+  metadata = {
+    user-data = "# Placeholder"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# 2. Create a managed instance group using the template.
+resource "google_compute_instance_group_manager" "ac_igm" {
+  project            = var.project_id
+  name               = "${var.name_prefix}-ac-igm"
+  base_instance_name = "${var.name_prefix}-ac-vm"
+  zone              = var.zones
+  target_size        = local.total_ac_count
+
+  version {
+    instance_template = google_compute_instance_template.ac_template.self_link
+  }
+}
+
+# 3. CRITICAL FIX: Apply a unique user_data script (with its unique provisioning key)
+#    to each instance in the managed group.
+resource "google_compute_per_instance_config" "ac_instance_config" {
+  project                  = var.project_id
+  instance_group_manager   = google_compute_instance_group_manager.ac_igm.name
+  zone                     = var.zones[floor(count.index / var.ac_count_per_zone)]
+  name                     = "${var.name_prefix}-ac-vm-${count.index}"
+  count                    = local.total_ac_count
+
+  preserved_state {
+    metadata = {
+      // Each instance gets its own unique user_data script from the list we generated.
+      user-data = local.ac_user_data[count.index]
+    }
+  }
+}
 # ------------------------------------------------------------------------------
 # Firewall Rules for App Connector Subnet
 # ------------------------------------------------------------------------------
@@ -150,5 +220,22 @@ resource "google_compute_firewall" "allow_ac_to_gke" {
   }
   allow {
     protocol = "icmp"
+  }
+}
+
+# /zscaler_spoke_connectors/main.tf
+
+# This rule allows SSH access to the Spoke bastion from the App Connectors themselves.
+resource "google_compute_firewall" "allow_ac_to_spoke_bastion" {
+  project       = var.project_id
+  name          = "${var.spoke_vpc_name}-allow-ac-to-bastion"
+  network       = data.google_compute_network.spoke_vpc.name
+  direction     = "INGRESS"
+  source_ranges = [google_compute_subnetwork.ac_subnet.ip_cidr_range]
+  // This assumes the Spoke bastion has the tag "spoke-bastion".
+  target_tags = ["spoke-bastion"]
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
   }
 }

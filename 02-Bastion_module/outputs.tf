@@ -20,7 +20,7 @@ output "network_tags" {
 
 output "public_ip" {
   description = "The public IP address of the bastion host, if one was created."
-  value       = google_compute_address.static_ip[0].address
+  value       = var.create_external_ip ? google_compute_address.static_ip[0].address : null
   sensitive = true
 }
 

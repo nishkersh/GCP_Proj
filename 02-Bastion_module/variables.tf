@@ -77,7 +77,7 @@ variable "ssh_source_ranges" {
 }
 
 variable "create_external_ip" {
-  description = "Whether to create an external IP for the bastion host. Required for direct SSH access from the internet."
+  description = "If true, an external IP address (either static or ephemeral) will be attached to the bastion. If false, the bastion will be private with no public IP."
   type        = bool
   default     = true
 }
