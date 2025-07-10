@@ -70,3 +70,34 @@ resource "google_compute_route" "spoke_default_route_to_hub_ilb" {
 
   depends_on = [google_compute_network_peering.spoke_to_hub]
 }
+
+
+# Spoke VPC DNS Policy for Zscaler Redirection
+
+# This policy is critical. It intercepts all DNS queries from the Spoke VPC
+# and forwards them to the Cloud Connector ILB in the Hub for inspection.
+resource "google_dns_policy" "spoke_dns_to_hub" {
+  project = var.gcp_project_id
+  name    = "spoke-dns-to-zs-hub-policy"
+
+  # Apply this policy to our existing Spoke VPC.
+  networks {
+    network_url = module.vpc.vpc_self_link
+  }
+
+  # Configure the policy to forward DNS queries.
+  alternative_name_server_config {
+    target_name_servers {
+      # The destination for all DNS queries is the Cloud Connector ILB.
+      ipv4_address = module.zscaler_hub.cloud_connector_ilb_ip
+    }
+  }
+
+  description = "Forwards all DNS queries from the Spoke VPC to the Zscaler Hub ILB."
+
+  # Ensure the VPC peering is active before attempting to apply this policy.
+  depends_on = [
+    google_compute_network_peering.spoke_to_hub,
+    google_compute_network_peering.hub_to_spoke
+  ]
+}
